@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bashv
 # vmbootstrap
 #
 # Creates and installs a new instance of a virtual machine in the (localhost)
@@ -31,18 +31,20 @@
 # - template_libvirt_xml() doesn't assigns a domain-id. Should we?
 #   Or is it done when we define the domain?
 # - /boot is not created inside the guest (why not???)
-# - The KVM host and disks could be mostly defined with libvirt, simplifiying
-#   the XML template and, probably, the LVM commands.
-#       attach-interface attach-disk attach-device
-#       virsh # vol-create-as ${vgname} ${guest}-boot 128M
 # - Echo pending actions for the sysadmin or generate an script to be run
 #   after the first boot:
 #     - mount point /boot does not exists
 #     - update-grub
 #     - Configure keyboard/locale (dpkg-reconfigure console-data)
 #     - Change root password.
-
-
+# - Kernel install asks for confirmation (untrusted packages) and probably
+#   needs   LANG = "en_US.UTF-8"
+# - console-data asks user about keymap policy.
+# - Fix:
+#   cp: cannot create regular file `/mnt/caracola/etc/console/boottime.kmap.gz': No such file or directory
+#
+#
+#
 # Copyright 2009 Jordi Funollet <jordi.f@ati.es>
 #
 #    This program is free software: you can redistribute it and/or modify
@@ -61,13 +63,13 @@
 
 ############################################################
 # Default values. Customize as needed.
-root_size='20g'
-boot_size='128m'
+root_size='20G'
+boot_size='128M'
 kernelpkg='linux-image-2.6-amd64'
 interface='eth0'
 
 # Defaults taken from KVM host.
-debian_release=$(lsb_release -c)
+debian_release=$(lsb_release -sc)
 # Quick and dirty way of knowing the Debian mirror used on the KVM host.
 debian_mirror=$(apt-cache policy grub | awk '/lenny\/main/ {print $2"/debian/"}')
 
@@ -76,7 +78,6 @@ net_tmp=($(ifconfig br0))
 gw_tmp=($(ip route list scope global))
 netmask=${net_tmp[8]/Mask:/}
 broadcast=${net_tmp[7]/Bcast:/}
-#network=   # Do we need it?
 gateway=${gw_tmp[2]}
 unset net_tmp
 unset gw_tmp
@@ -133,8 +134,8 @@ parse_opts () {
 
 make_guest_fs () {
     # Create LV.
-    lvcreate -L ${root_size} -n "${guest}" /dev/${vgname}
-    lvcreate -L ${boot_size} -n "${guest}-boot" /dev/${vgname}
+    virsh vol-create-as ${vgname} ${guest}-boot ${boot_size}
+    virsh vol-create-as ${vgname} ${guest}-root ${root_size}
 
     # One partition, bootable.
     echo ',,L,*' | sfdisk ${boot_dev}
@@ -166,7 +167,7 @@ mount_guest () {
     if ! mountpoint -q ${target} ; then
         mount ${root_dev} ${target}
     fi
-    chroot ${target} mkdir -p /boot
+    mkdir -p ${target}/boot/
     if ! mountpoint -q ${target}/boot/ ; then
         mount "${boot_dev}1" ${target}/boot/
     fi
@@ -273,7 +274,7 @@ conf_kernel () {
     # Install the image. Mounting /proc avoids warnings about /proc/modules.
     # Fail to umount /proc and you can't umount the chroot dir.
     # Safe way: don't mount /proc, ignore warnings.
-    chroot ${target} aptitude -y install $kernelpkg
+    chroot ${target} /usr/bin/aptitude -y install $kernelpkg
 
     # Complete the kernel install config. We don't want this here
     # on the first run.
@@ -283,8 +284,8 @@ conf_kernel () {
 ############################################################
 
 conf_basics () {
-    apt-key exportall | chroot ${target} apt-key add -
-    chroot ${target} aptitude update
+    apt-key exportall | chroot ${target} /usr/bin/apt-key add -
+    chroot ${target} /usr/bin/aptitude update
     
     if [ -f /etc/timezone ]; then
         tz=$(cat /etc/timezone)
@@ -300,8 +301,9 @@ conf_basics () {
     chroot ${target} /usr/sbin/locale-gen
     chroot ${target} /usr/sbin/update-locale
     # Copy the default keymap.
+    mkdir ${target}/etc/console/
     cp /etc/console/boottime.kmap.gz ${target}/etc/console/boottime.kmap.gz
-    chroot ${target} aptitude -y install console-tools
+    chroot ${target} /usr/bin/aptitude -y install console-tools
     #chroot ${target} /usr/sbin/install-keymap es
 }
 
@@ -338,7 +340,6 @@ allow-hotplug ${interface}
 iface ${interface} inet static
         address $ip_addr
         netmask $netmask
-        network $network
         broadcast $broadcast
         gateway $gateway
         # dns-* options are implemented by the resolvconf package, if installed
@@ -380,7 +381,7 @@ template_libvirt_xml () {
   <currentMemory>${libvirt_mem}</currentMemory>                    
   <vcpu>${libvirt_vcpu}</vcpu>                                            
   <os>                                                      
-    <type arch=${libvirt_arch} machine='pc'>hvm</type>
+    <type arch='${libvirt_arch}' machine='pc'>hvm</type>
     <boot dev='hd'/>                                        
   </os>                                                     
   <features>                                                
