@@ -14,10 +14,6 @@
 #   - http://dsa.debian.org/howto/install-kvm/
 #   - 'newvserver' on 'vserver-utils' Debian package
 #
-# Required packages:
-#   kvm libvirt-bin bridge-utils
-#   debootstrap multipath-tools sfdisk uuid-runtime
-#
 # Assumptions:
 #   - Host node is running Debian.
 #   - Bridged network already configured.
@@ -104,6 +100,29 @@ domain=$(hostname -d)
 
 ############################################################
 
+function error () {
+    # Warn and exit.
+    echo "[`basename $0`] error: $*" ; exit 1 ;
+}
+
+function check_execs () {
+    # Verifies we can execute received files.
+ 
+    for X in $@ ; do
+        # Is it in $PATH?
+        hash $X > /dev/null 2>&1 || error "$X not in PATH"
+        FULLPATH=`hash -t $X`
+        # If it's executable, jump to next file.
+        [ -x $FULLPATH ] && continue
+        # Is it a symbolic link...?
+        [ ! -L $FULLPATH ] || error "$X non-executable"
+        # ... and the referenced file is executable? (Ugly hack).
+        stat -Lc '%A' $FULLPATH | grep 'x' || error "$X non-executable"
+    done
+}
+
+############################################################
+
 usage () {
     echo "Usage: $(basename $0) [options] <VG-name> <guest-name>"
     echo "    -h,--help     Show this message and exit."
@@ -146,7 +165,6 @@ parse_opts () {
     vgname=$1
     guest=$2
 }
-
 
 ############################################################
 
@@ -489,7 +507,10 @@ T0:12345:respawn:/sbin/getty -L ttyS0 115200 vt100
 
 ############################################################
 
-
+# Verify all the tools are installed on the system.
+check_execs ip ifconfig grep cut awk sed lsb_release apt-cache hostname \
+    getopt virsh debootstrap sfdisk kpartx mkfs.ext3 mount umount \
+    mountpoint vol_id grub chroot apt-key aptitude debconf-set-selections
 
 parse_opts "$@"
 
@@ -518,7 +539,6 @@ if [ -z "$ip_addr" ] ; then
     echo "Please provide an IP address."
     exit 1
 fi
-
 
 make_guest_fs
 mount_guest
