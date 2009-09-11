@@ -232,7 +232,7 @@ template_grub_menu_lst () {
 
 title Debian 'bootstrap' config
 root (hd0,0)
-kernel /vmlinuz root=UUID=${root_uuid} ro
+kernel /vmlinuz root=UUID=${root_uuid} ro console=tty0 console=ttyS0,115200
 initrd /initrd.img
 
 ### END DEBIAN AUTOMAGIC KERNELS LIST
@@ -259,14 +259,20 @@ conf_grub () {
     lastline=$(grep -ns 'End Default Options' /boot/grub/menu.lst | cut -d: -f1)
     head -n ${lastline} /boot/grub/menu.lst > ${target}/boot/grub/menu.lst
     # Customize configuration.
+    # Serial console for Grub.
     sed -i -r -e \
-        "s|^(# kopt=root=).* (.*)$|\1UUID=${root_uuid} \2 console=tty0 console=ttyS0,115200|" \
+        "/^### BEGIN AUTOMAGIC KERNELS/i\
+serial --unit=0 --speed=115200 --word=8 --parity=no --stop=1\
+\nterminal --timeout=5 serial console\n" \
         ${target}/boot/grub/menu.lst
-    # Probably we should do more changes to the original file, but for now
-    # it just works.
+    # Change root partition; console for boot.
+    sed -i -r -e \
+        "s|^(# kopt=root=).* (.*)$|\
+\1UUID=${root_uuid} \2 console=tty0 console=ttyS0,115200|" \
+        ${target}/boot/grub/menu.lst
 
     # Minimal Grub config for booting.
-    # Run update-grub after first boot and will be regenerated.
+    # Run 'update-grub' after first boot and will be regenerated.
     template_grub_menu_lst >> ${target}/boot/grub/menu.lst
 
     # Put Grub on the MBR.
