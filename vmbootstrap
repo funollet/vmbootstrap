@@ -384,7 +384,7 @@ iface ${interface} inet static
 conf_network () {
     # udev (running in a chroot) creates a config for the devices of the
     # main host, not the fresh installed one.
-    rm /etc/udev/rules.d/70-persistent-net.rules
+    > ${target}/etc/udev/rules.d/70-persistent-net.rules
 
     echo "${guest}" > ${target}/etc/hostname
     template_etc_hosts > ${target}/etc/hosts
