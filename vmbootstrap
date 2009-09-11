@@ -28,8 +28,6 @@
 #
 # TODO:
 # - Better comments of the default assumptions about storage and network.
-# - template_libvirt_xml() doesn't assigns a domain-id. Should we?
-#   Or is it done when we define the domain?
 # - /boot is not created inside the guest (why not???)
 # - Echo pending actions for the sysadmin or generate an script to be run
 #   after the first boot:
@@ -37,8 +35,6 @@
 #     - update-grub
 #     - Configure keyboard/locale (dpkg-reconfigure console-data)
 #     - Change root password.
-# - Kernel install asks for confirmation (untrusted packages) and probably
-#   needs   LANG = "en_US.UTF-8"
 # - console-data asks user about keymap policy.
 # - Improve detection of Debian mirror; has 'lenny' hardcoded.
 # - Grub files are copied from /usr/lib/grub/x86_64-pc/ (hardcoded).
@@ -520,12 +516,12 @@ fi
 
 make_guest_fs
 mount_guest
+conf_libvirt
 do_debootstrap
+conf_basics
 conf_kernel
 conf_grub
 template_inittab >> ${target}/etc/inittab  # Adds a serial console.
 template_fstab > ${target}/etc/fstab
 conf_network
-conf_basics
 umount_guest
-conf_libvirt
