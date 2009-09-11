@@ -199,10 +199,10 @@ mount_guest () {
 
 umount_guest () {
     umount ${target}/boot/ &&
-    rmdir  ${target}/boot/ &&
+    rmdir  ${target}/boot/
     umount ${target} &&
-    rmdir ${target} &&
-    rm ${boot_dev}1 &&
+    rmdir ${target}
+    rm ${boot_dev}1
     kpartx -d ${boot_dev}
 }
 
