@@ -29,12 +29,6 @@
 # TODO:
 # - Better comments of the default assumptions about storage and network.
 # - /boot is not created inside the guest (why not???)
-# - Echo pending actions for the sysadmin or generate an script to be run
-#   after the first boot:
-#     - mount point /boot does not exists
-#     - update-grub
-#     - Configure keyboard/locale (dpkg-reconfigure console-data)
-#     - Change root password.
 # - console-data asks user about keymap policy.
 # - Improve detection of Debian mirror; has 'lenny' hardcoded.
 # - Grub files are copied from /usr/lib/grub/x86_64-pc/ (hardcoded).
@@ -521,3 +515,12 @@ template_inittab >> ${target}/etc/inittab  # Adds a serial console.
 template_fstab > ${target}/etc/fstab
 conf_network
 umount_guest
+
+cat <<.
+Some tasks are left to the sysadmin after first boot.
+  * Mountpoint /boot has not been created (a bug).
+        mkdir /boot && mount /boot
+  * Run 'update-grub' to generate an standard Grub menu.lst, the
+    existing one is just enought for first boot.
+  * Change root password!
+.
