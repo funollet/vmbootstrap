@@ -1,4 +1,4 @@
-#!/bin/bashv
+#!/bin/bash
 # vmbootstrap
 #
 # Creates and installs a new instance of a virtual machine in the (localhost)
@@ -20,14 +20,14 @@
 #
 # Assumptions:
 #   - Host node is running Debian.
+#   - Bridged network already configured.
 #   - No LVM inside the guest.
 #   - Two LV will be created for every guest:
 #       - 'guest-boot' for /boot, partitioned so can install Grub on MBR (/dev/vda1)
 #       - 'guest-root' for /, not partitioned, easy to grow (/dev/vdb)
 #
-#TODO:
+# TODO:
 # - Better comments of the default assumptions about storage and network.
-# - Overwrite default values sourcing an external file config.
 # - template_libvirt_xml() doesn't assigns a domain-id. Should we?
 #   Or is it done when we define the domain?
 # - /boot is not created inside the guest (why not???)
@@ -40,8 +40,9 @@
 # - Kernel install asks for confirmation (untrusted packages) and probably
 #   needs   LANG = "en_US.UTF-8"
 # - console-data asks user about keymap policy.
-# - Fix:
-#   cp: cannot create regular file `/mnt/caracola/etc/console/boottime.kmap.gz': No such file or directory
+# - Improve detection of Debian mirror; has 'lenny' hardcoded.
+# - Grub files are copied from /usr/lib/grub/x86_64-pc/ (hardcoded).
+# - mount/umount all partitions in guest's /etc/fstab.
 #
 #
 #
@@ -62,50 +63,78 @@
 #
 
 ############################################################
-# Default values. Customize as needed.
-root_size='20G'
-boot_size='128M'
-kernelpkg='linux-image-2.6-amd64'
-interface='eth0'
 
-# Defaults taken from KVM host.
-debian_release=$(lsb_release -sc)
-# Quick and dirty way of knowing the Debian mirror used on the KVM host.
-debian_mirror=$(apt-cache policy grub | awk '/lenny\/main/ {print $2"/debian/"}')
-
-# Defaults taken from KVM host.
+# Collect information needed to calculate default values.
 net_tmp=($(ifconfig br0))
 gw_tmp=($(ip route list scope global))
+tmp_dns_search=$(grep search /etc/resolv.conf)
+tmp_dns_nameservers=$(grep nameserver /etc/resolv.conf)
+
+
+############################################################
+# Default values. Can be overwritten in a config file.
+#
+#
+# / partition size (in libvirt format).
+root_size='20G'
+# /boot partition size (in libvirt format).
+boot_size='128M'
+# Interface source name for libvirt.
+interface='eth0'
+# Memory for new host (in libvirt format).
+libvirt_mem='1048576'
+# Virtual CPUs for new host (in libvirt format).
+libvirt_vcpu='1'
+# New host architecture (in libvirt format).
+libvirt_arch='x86_64' 
+# Name of Debian release to be installed by debootstrap.
+debian_release=$(lsb_release -sc)
+# URL of Debian mirror used by debootstrap.
+debian_mirror=$(apt-cache policy grub | awk '/lenny\/main/ {print $2"/debian/"}')
+# Kernel package to be installed.
+kernelpkg='linux-image-2.6-amd64'
+# Network mask for /etc/network/interfaces.
 netmask=${net_tmp[8]/Mask:/}
+# Broadcast address for /etc/network/interfaces.
 broadcast=${net_tmp[7]/Bcast:/}
+# Gateway address for /etc/network/interfaces.
 gateway=${gw_tmp[2]}
-unset net_tmp
-unset gw_tmp
-domain=$(grep search /etc/resolv.conf | cut -d' ' -f2-)
-nameservers=$(grep nameserver /etc/resolv.conf | cut -d' ' -f2-)
+# dns-search for /etc/network/interfaces.
+dns_search=${tmp_dns_search//search /}
+# dns-nameservers for /etc/network/interfaces.
+dns_nameservers=${tmp_dns_nameservers//nameserver /}
+# Domain of the new host, for /etc/hosts.
+domain=$(hostname -d)
+#
+#
+############################################################
 
 
+# Load config file for overwriting default values.
+[ -f ~/.$(basename $0) ] && . ~/.$(basename $0)
 
 ############################################################
 
 usage () {
-    echo "Usage: $(basename $0) [options] <VG-name> <kvm-guest>"
+    echo "Usage: $(basename $0) [options] <VG-name> <guest-name>"
     echo "    -h,--help     Show this message and exit."
     echo "    -i,--ip=IP    Provide an IP address for the virtual server."
     echo "    --mount       Just mount guest's partitions."
     echo "    --umount      Just umount guest's partitions."
     echo "    --grub        Just install Grub."
+    echo 
+    echo "Reads default values from ~/.$(basename $0)"
 }
 
 
 parse_opts () {
-    tempopt=$(getopt --name kvmbootstrap -o u,h,i -l usage,help,ip:,mount,umount,grub -- "$@")
+    tempopt=$(getopt --name $(basename $0) -o u,h,i -l usage,help,ip:,mount,umount,grub -- "$@")
     # Finish if received some unknown option.
     if [ $? != 0 ] ; then usage && exit 1 ; fi
 
     eval set -- "$tempopt"
 
-    # Default values
+    # Default values for command-line options.
     just_mount='no'
     just_umount='no'
     just_grub='no'
@@ -192,7 +221,7 @@ umount_guest () {
 do_debootstrap () {
     debootstrap --components=main,non-free,contrib \
         --include=ssh,grub,udev,locales \
-        $debian_release ${target} $debian_mirror
+        ${debian_release} ${target} ${debian_mirror}
 }
 
 
@@ -274,7 +303,7 @@ conf_kernel () {
     # Install the image. Mounting /proc avoids warnings about /proc/modules.
     # Fail to umount /proc and you can't umount the chroot dir.
     # Safe way: don't mount /proc, ignore warnings.
-    chroot ${target} /usr/bin/aptitude -y install $kernelpkg
+    chroot ${target} /usr/bin/aptitude -y install ${kernelpkg}
 
     # Complete the kernel install config. We don't want this here
     # on the first run.
@@ -314,7 +343,7 @@ conf_basics () {
 template_etc_hosts () {
     cat <<.
 127.0.0.1   localhost
-$ip_addr    ${guest}  ${guest}.${domain}
+$ip_addr    ${guest}.${domain}  ${guest}
 
 # The following lines are desirable for IPv6 capable hosts
 ::1     localhost ip6-localhost ip6-loopback
@@ -338,13 +367,13 @@ iface lo inet loopback
 # The primary network interface
 allow-hotplug ${interface}
 iface ${interface} inet static
-        address $ip_addr
-        netmask $netmask
-        broadcast $broadcast
-        gateway $gateway
+        address ${ip_addr}
+        netmask ${netmask}
+        broadcast ${broadcast}
+        gateway ${gateway}
         # dns-* options are implemented by the resolvconf package, if installed
-        dns-nameservers $nameservers
-        dns-search $domain
+        dns-nameservers ${dns_nameservers}
+        dns-search ${dns_search}
 .
     
 }
@@ -369,10 +398,6 @@ conf_network () {
 ## Define a KVM guest using libvirt.
 
 template_libvirt_xml () {
-    libvirt_mem='1048576'
-    libvirt_vcpu='1'
-    libvirt_arch='x86_64' 
-    
     cat <<.
 <domain type='kvm'>                                         
   <name>${guest}</name>                                      
@@ -460,8 +485,11 @@ T0:12345:respawn:/sbin/getty -L ttyS0 115200 vt100
 
 parse_opts "$@"
 
+# chroot mountpoint for /
 target="/mnt/${guest}"
+# LV for the / disk.
 root_dev="/dev/${vgname}/${guest}-root"
+# LV for the /boot disk.
 boot_dev="/dev/${vgname}/${guest}-boot"
 
 
@@ -489,7 +517,7 @@ mount_guest
 do_debootstrap
 conf_kernel
 conf_grub
-template_inittab >> ${target}/etc/inittab
+template_inittab >> ${target}/etc/inittab  # Adds a serial console.
 template_fstab > ${target}/etc/fstab
 conf_network
 conf_basics
