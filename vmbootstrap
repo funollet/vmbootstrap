@@ -29,7 +29,6 @@
 # TODO:
 # - Better comments of the default assumptions about storage and network.
 # - /boot is not created inside the guest (why not???)
-# - console-data asks user about keymap policy.
 # - Improve detection of Debian mirror; has 'lenny' hardcoded.
 # - Grub files are copied from /usr/lib/grub/x86_64-pc/ (hardcoded).
 # - mount/umount all partitions in guest's /etc/fstab.
@@ -308,6 +307,21 @@ conf_kernel () {
 
 ############################################################
 
+template_console_preseed () {
+    cat <<.
+console-common  console-data/keymap/family      select  qwerty
+console-data    console-data/keymap/family      select  qwerty
+console-common  console-data/keymap/powerpcadb  boolean
+console-data    console-data/keymap/powerpcadb  boolean
+console-common  console-data/keymap/policy      select  Don't touch keymap
+console-data    console-data/keymap/policy      select  Don't touch keymap
+console-common  console-data/bootmap-md5sum     string  none
+console-data    console-data/bootmap-md5sum     string  none
+console-common  console-data/keymap/ignored     note
+console-data    console-data/keymap/ignored     note
+.
+}
+
 conf_basics () {
     apt-key exportall | chroot ${target} /usr/bin/apt-key add -
     chroot ${target} /usr/bin/aptitude update
@@ -328,6 +342,8 @@ conf_basics () {
     # Copy the default keymap.
     mkdir ${target}/etc/console/
     cp /etc/console/boottime.kmap.gz ${target}/etc/console/boottime.kmap.gz
+    template_console_preseed > ${target}/tmp/console.pressed
+    chroot ${target} /usr/bin/debconf-set-selections /tmp/console.pressed
     chroot ${target} /usr/bin/aptitude -y install console-tools
     #chroot ${target} /usr/sbin/install-keymap es
 }
