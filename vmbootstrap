@@ -422,10 +422,6 @@ template_libvirt_xml () {
   <on_crash>restart</on_crash>
   <devices>
     <emulator>/usr/bin/kvm</emulator>
-    <disk type='file' device='cdrom'>
-      <target dev='hdc' bus='ide'/>
-      <readonly/>
-    </disk>
     <disk type='block' device='disk'>
       <source dev='${boot_dev}'/>
       <target dev='vda' bus='virtio'/>
