@@ -4,26 +4,11 @@
 # Creates and installs a new instance of a virtual machine in the (localhost)
 # node. Configures the VM to the point of being usable with ssh.
 #
-# Only KVM is supported for virtualization. Easy to extend, the script
-# uses libvirt.
-#
-# Only Debian guests can be installed.
-#
-#
 # Largely inspired by:
 #   - http://dsa.debian.org/howto/install-kvm/
 #   - 'newvserver' on 'vserver-utils' Debian package
 #
-# Assumptions:
-#   - Host node is running Debian.
-#   - Bridged network already configured.
-#   - No LVM inside the guest.
-#   - Two LV will be created for every guest:
-#       - 'guest-boot' for /boot, partitioned so can install Grub on MBR (/dev/vda1)
-#       - 'guest-root' for /, not partitioned, easy to grow (/dev/vdb)
-#
 # TODO:
-# - Better comments of the default assumptions about storage and network.
 # - /boot is not created inside the guest (why not???)
 # - Improve detection of Debian mirror; has 'lenny' hardcoded.
 # - Grub files are copied from /usr/lib/grub/x86_64-pc/ (hardcoded).
@@ -136,7 +121,7 @@ usage () {
 
 
 parse_opts () {
-    tempopt=$(getopt --name $(basename $0) -o u,h,i -l usage,help,ip:,mount,umount,grub -- "$@")
+    tempopt=$(getopt --name $(basename $0) -o u,h,i: -l usage,help,ip:,mount,umount,grub -- "$@")
     # Finish if received some unknown option.
     if [ $? != 0 ] ; then usage && exit 1 ; fi
 
