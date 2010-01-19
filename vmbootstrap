@@ -9,7 +9,6 @@
 #   - 'newvserver' on 'vserver-utils' Debian package
 #
 # TODO:
-# - /boot is not created inside the guest (why not???)
 # - Grub files are copied from /usr/lib/grub/x86_64-pc/ (hardcoded).
 # - mount/umount all partitions in guest's /etc/fstab.
 #
@@ -201,7 +200,6 @@ mount_guest () {
 
 umount_guest () {
     umount ${target}/boot/ &&
-    rmdir  ${target}/boot/
     umount ${target} &&
     rmdir ${target}
     rm ${boot_dev}1
