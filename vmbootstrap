@@ -32,57 +32,75 @@
 
 ############################################################
 
-# Collect information needed to calculate default values.
-net_tmp=($(ifconfig br0))
-gw_tmp=($(ip route list scope global))
-tmp_dns_search=$(grep search /etc/resolv.conf)
-tmp_dns_nameservers=$(grep nameserver /etc/resolv.conf)
+function set_defaults {
+
+	# Collect information needed to calculate default values.
+	net_tmp=($(ifconfig br0))
+	gw_tmp=($(ip route list scope global))
+	tmp_dns_search=$(grep search /etc/resolv.conf)
+	tmp_dns_nameservers=$(grep nameserver /etc/resolv.conf)
+
+	############################################################
+	# Default values. Can be overwritten in a config file.
+	#
+	#
+	# / partition size (in libvirt format).
+	root_size='20G'
+	# /boot partition size (in libvirt format).
+	boot_size='128M'
+	# Interface source name for libvirt.
+	interface='eth0'
+	# Memory for new host (in libvirt format).
+	libvirt_mem='1048576'
+	# Virtual CPUs for new host (in libvirt format).
+	libvirt_vcpu='1'
+	# New host architecture (in libvirt format).
+	libvirt_arch='x86_64' 
+	# Name of Debian release to be installed by debootstrap.
+	debian_release=$(lsb_release -sc)
+	# URL of Debian mirror used by debootstrap.
+	debian_mirror=$(apt-cache policy grub \
+		| awk '/'$(lsb_release -sc)'\/main/ {print $2"/debian/"}')
+	# Kernel package to be installed.
+	kernelpkg='linux-image-2.6-amd64'
+	# Network mask for /etc/network/interfaces.
+	netmask=${net_tmp[8]/Mask:/}
+	# Broadcast address for /etc/network/interfaces.
+	broadcast=${net_tmp[7]/Bcast:/}
+	# Gateway address for /etc/network/interfaces.
+	gateway=${gw_tmp[2]}
+	# dns-search for /etc/network/interfaces.
+	dns_search=${tmp_dns_search//search /}
+	# dns-nameservers for /etc/network/interfaces.
+	dns_nameservers=${tmp_dns_nameservers//nameserver /}
+	# Domain of the new host, for /etc/hosts.
+	domain=$(hostname -d)
+	#
+	#
+	############################################################
+
+	# This list is used by function echo_defaults().
+	key_defaults_list="root_size boot_size interface libvirt_mem
+		libvirt_vcpu libvirt_arch debian_release debian_mirror \
+		kernelpkg netmask broadcast gateway dns_search dns_nameservers \
+		domain"
+
+}
 
 
-############################################################
-# Default values. Can be overwritten in a config file.
-#
-#
-# / partition size (in libvirt format).
-root_size='20G'
-# /boot partition size (in libvirt format).
-boot_size='128M'
-# Interface source name for libvirt.
-interface='eth0'
-# Memory for new host (in libvirt format).
-libvirt_mem='1048576'
-# Virtual CPUs for new host (in libvirt format).
-libvirt_vcpu='1'
-# New host architecture (in libvirt format).
-libvirt_arch='x86_64' 
-# Name of Debian release to be installed by debootstrap.
-debian_release=$(lsb_release -sc)
-# URL of Debian mirror used by debootstrap.
-debian_mirror=$(apt-cache policy grub \
-	| awk '/'$(lsb_release -sc)'\/main/ {print $2"/debian/"}')
-# Kernel package to be installed.
-kernelpkg='linux-image-2.6-amd64'
-# Network mask for /etc/network/interfaces.
-netmask=${net_tmp[8]/Mask:/}
-# Broadcast address for /etc/network/interfaces.
-broadcast=${net_tmp[7]/Bcast:/}
-# Gateway address for /etc/network/interfaces.
-gateway=${gw_tmp[2]}
-# dns-search for /etc/network/interfaces.
-dns_search=${tmp_dns_search//search /}
-# dns-nameservers for /etc/network/interfaces.
-dns_nameservers=${tmp_dns_nameservers//nameserver /}
-# Domain of the new host, for /etc/hosts.
-domain=$(hostname -d)
-#
-#
-############################################################
+echo_defaults () {
+	# Shows default configuration values in 'key=value' format.
+	# 
+	# Environment:
+	#
+	#   keys_defaults_list: string with names of vars to be shown.
 
+	echo "### Default values: "
+	for key in ${key_defaults_list} ; do
+		echo ${key}=${!key}
+	done
+}
 
-# Load config file for overwriting default values.
-[ -f ~/.$(basename $0) ] && . ~/.$(basename $0)
-
-############################################################
 
 function error () {
     # Warn and exit.
@@ -114,13 +132,14 @@ usage () {
     echo "    --mount       Just mount guest's partitions."
     echo "    --umount      Just umount guest's partitions."
     echo "    --grub        Just install Grub."
+    echo "    -s,--show-defaults  Show default values."
     echo 
-    echo "Reads default values from ~/.$(basename $0)"
+    echo "Reads non-default values from ~/.$(basename $0)"
 }
 
 
 parse_opts () {
-    tempopt=$(getopt --name $(basename $0) -o u,h,i: -l usage,help,ip:,mount,umount,grub -- "$@")
+    tempopt=$(getopt --name $(basename $0) -o u,h,i:,s -l usage,help,ip:,mount,umount,grub,show-defaults -- "$@")
     # Finish if received some unknown option.
     if [ $? != 0 ] ; then usage && exit 1 ; fi
 
@@ -131,6 +150,7 @@ parse_opts () {
     just_umount='no'
     just_grub='no'
     ip_addr=''
+    show_defaults='no'
     # Parse named options.
     while true ; do
         case "$1" in
@@ -139,6 +159,7 @@ parse_opts () {
             --mount) just_mount='yes' ; shift ;;
             --umount) just_umount='yes' ; shift ;;
             --grub) just_grub='yes' ; shift ;;
+            -s|--show-defaults) show_defaults='yes' ; shift ;;
 	    --) shift ; break ;;
 	    *) echo "Internal error!" >&2 ; exit 1 ;;
     	esac
@@ -149,6 +170,8 @@ parse_opts () {
     vgname=$1
     guest=$2
 }
+
+
 
 ############################################################
 
@@ -497,6 +520,15 @@ check_execs ip ifconfig grep cut awk sed lsb_release apt-cache hostname \
 
 parse_opts "$@"
 
+set_defaults
+
+if [ "${show_defaults}" = "yes" ] ; then
+	echo_defaults ; exit
+else
+	# Load config file for overwriting default values.
+	[ -f ~/.$(basename $0) ] && . ~/.$(basename $0)
+fi
+
 # Set explicitly the URI for virsh.
 export VIRSH_DEFAULT_CONNECT_URI='qemu:///system'
 
@@ -540,8 +572,6 @@ umount_guest
 
 cat <<.
 Some tasks are left to the sysadmin after first boot.
-  * Mountpoint /boot has not been created (a bug).
-        mkdir /boot && mount /boot
   * Run 'update-grub' to generate an standard Grub menu.lst, the
     existing one is just enought for first boot.
   * Change root password!
