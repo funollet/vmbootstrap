@@ -499,6 +499,9 @@ check_execs ip ifconfig grep cut awk sed lsb_release apt-cache hostname \
 
 parse_opts "$@"
 
+# Set explicitly the URI for virsh.
+export VIRSH_DEFAULT_CONNECT_URI='qemu:///system'
+
 # chroot mountpoint for /
 target="/mnt/${guest}"
 # LV for the / disk.
