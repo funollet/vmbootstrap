@@ -10,7 +10,6 @@
 #
 # TODO:
 # - /boot is not created inside the guest (why not???)
-# - Improve detection of Debian mirror; has 'lenny' hardcoded.
 # - Grub files are copied from /usr/lib/grub/x86_64-pc/ (hardcoded).
 # - mount/umount all partitions in guest's /etc/fstab.
 #
@@ -60,7 +59,8 @@ libvirt_arch='x86_64'
 # Name of Debian release to be installed by debootstrap.
 debian_release=$(lsb_release -sc)
 # URL of Debian mirror used by debootstrap.
-debian_mirror=$(apt-cache policy grub | awk '/lenny\/main/ {print $2"/debian/"}')
+debian_mirror=$(apt-cache policy grub \
+	| awk '/'$(lsb_release -sc)'\/main/ {print $2"/debian/"}')
 # Kernel package to be installed.
 kernelpkg='linux-image-2.6-amd64'
 # Network mask for /etc/network/interfaces.
