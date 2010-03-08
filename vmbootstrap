@@ -133,6 +133,7 @@ usage () {
     echo "    -i,--ip=IP    Provide an IP address for the virtual server."
     echo "    --mount       Just mount guest's partitions."
     echo "    --umount      Just umount guest's partitions."
+    echo "    --remove      Remove a guest's definition and the storage it was using."
     echo "    --grub        Just install Grub."
     echo "    -s,--show-defaults  Show default values."
     echo 
@@ -141,7 +142,7 @@ usage () {
 
 
 parse_opts () {
-    tempopt=$(getopt --name $(basename $0) -o u,h,i:,s -l usage,help,ip:,mount,umount,grub,show-defaults -- "$@")
+    tempopt=$(getopt --name $(basename $0) -o u,h,i:,s -l usage,help,ip:,mount,umount,remove,grub,show-defaults -- "$@")
     # Finish if received some unknown option.
     if [ $? != 0 ] ; then usage && exit 1 ; fi
 
@@ -150,6 +151,7 @@ parse_opts () {
     # Default values for command-line options.
     just_mount='no'
     just_umount='no'
+    remove='no'
     just_grub='no'
     ip_addr=''
     show_defaults='no'
@@ -160,6 +162,7 @@ parse_opts () {
             -i|--ip) ip_addr=$2 ; shift 2 ;;
             --mount) just_mount='yes' ; shift ;;
             --umount) just_umount='yes' ; shift ;;
+            --remove) remove='yes' ; shift ;;
             --grub) just_grub='yes' ; shift ;;
             -s|--show-defaults) show_defaults='yes' ; shift ;;
 	    --) shift ; break ;;
@@ -499,6 +502,25 @@ conf_libvirt () {
     virsh autostart ${guest}
 }
 
+
+
+__vol_delete () {
+    # Delete a volume in a pool, if exists.
+    # 
+    #   $1: pool
+    #   $2: volume
+    virsh vol-info --pool $1 $2 > /dev/null 2>&1 &&
+        virsh vol-delete --pool $1 $2
+}
+
+remove_guest() {
+    # Undefine a guest and free the storage it was using.
+    virsh undefine $guest
+    __vol_delete $vgname ${guest}-swap
+    __vol_delete $vgname ${guest}-boot
+    __vol_delete $vgname ${guest}-root
+}
+
 ############################################################
 
 template_fstab () {
@@ -552,6 +574,9 @@ boot_dev="/dev/${vgname}/${guest}-boot"
 swap_dev="/dev/${vgname}/${guest}-swap"
 
 
+if [ "$remove" = "yes" ] ; then
+    remove_guest ; exit
+fi
 if [ "$just_mount" = "yes" ] ; then
     mount_guest ; exit
 fi
