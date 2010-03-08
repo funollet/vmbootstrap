@@ -18,7 +18,7 @@ Any other configuration is left to deployment tools ([Capistrano][capistrano],
 Right now only KVM is supported for virtualization and only Debian guests can
 be installed.
 
-The guest is installed with *deborphan*. This makes the configuration easier to
+The guest is installed with *debootstrap*. This makes the configuration easier to
 tweak than with a tool based on presseding *debian-installer*.
 
 This script is largely inspired by:
@@ -38,15 +38,18 @@ The only exception is for `/boot`: the disk has a partition so we can install
 Grub on the MBR.
 
 So, if we have a VG called 'host' and the new machine is called 'guest', there
-will be two LV on the host:
+will be three LV on the host:
 
     /dev/host/guest-boot
     /dev/host/guest-root
+    /dev/host/guest-swap
 
 Guest's /etc/fstab will look like this:
 
     /dev/vda1   /boot   ext3   defaults   0 0
     /dev/vdb    /root   ext3   defaults   0 0
+    /dev/vdc    none    swap   sw         0 0
+
 
 
 Network and default values
@@ -76,7 +79,7 @@ Alternatives
 [virt-install][virt-manager] can do most of these tasks but must be preseed.
 
 [vmbuilder][vmbuilder] will become a very nice option once it supports Debian
-hosts. Does a similar subset of tasks but doesn't use *deborphan*.
+hosts. Does a similar subset of tasks but doesn't use *debootstrap*.
 
 Bernd Zeimetz wrote a
 [vmbuilder extension that supports Debian Etch][vmbuilder-bzed]
