@@ -48,6 +48,8 @@ function set_defaults {
     root_size='20G'
     # /boot partition size (in libvirt format).
     boot_size='128M'
+    # swap partition size (in libvirt format).
+    swap_size='1G'
     # Interface source name for libvirt.
     interface='eth0'
     # Memory for new host (in libvirt format).
@@ -179,6 +181,7 @@ make_guest_fs () {
     # Create LV.
     virsh vol-create-as ${vgname} ${guest}-boot ${boot_size}
     virsh vol-create-as ${vgname} ${guest}-root ${root_size}
+    virsh vol-create-as ${vgname} ${guest}-swap ${swap_size}
 
     # One partition, bootable.
     echo ',,L,*' | sfdisk ${boot_dev}
@@ -193,6 +196,7 @@ make_guest_fs () {
     # Create filesystems.
     mkfs.ext3 ${root_dev}
     mkfs.ext3 "${boot_dev}1"
+    mkswap ${swap_dev}
 }
 
 
@@ -218,6 +222,7 @@ mount_guest () {
     # We need FS UUIDs for configuring Grub and /etc/fstab.
     root_uuid=$(vol_id --uuid ${root_dev})
     boot_uuid=$(vol_id --uuid "${boot_dev}1")
+    swap_uuid=$(vol_id --uuid ${swap_dev})
 }
 
 
@@ -464,6 +469,10 @@ template_libvirt_xml () {
       <source dev='${root_dev}'/>
       <target dev='vdb' bus='virtio'/>
     </disk>
+    <disk type='block' device='disk'>
+      <source dev='${swap_dev}'/>
+      <target dev='vdc' bus='virtio'/>
+    </disk>
     <interface type='bridge'>
       <mac address='${libvirt_mac}'/>
       <source bridge='br0'/>
@@ -500,6 +509,7 @@ template_fstab () {
 proc            /proc           proc    defaults        0 0
 UUID=${root_uuid}   /               ext3  errors=remount-ro   0 1
 UUID=${boot_uuid}   /boot           ext3  defaults            0 2
+UUID=${swap_uuid}   none        swap    sw           0 0
 .
 }
 
@@ -538,6 +548,8 @@ target="/mnt/${guest}"
 root_dev="/dev/${vgname}/${guest}-root"
 # LV for the /boot disk.
 boot_dev="/dev/${vgname}/${guest}-boot"
+# LV for swap.
+swap_dev="/dev/${vgname}/${guest}-swap"
 
 
 if [ "$just_mount" = "yes" ] ; then
