@@ -241,6 +241,7 @@ umount_guest () {
 
 do_debootstrap () {
     debootstrap --components=main,non-free,contrib \
+        --keyring=/usr/share/keyrings/debian-archive-keyring.gpg \
         --include=ssh,grub,udev,locales \
         ${debian_release} ${target} ${debian_mirror}
 }
