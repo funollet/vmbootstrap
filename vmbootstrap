@@ -261,15 +261,6 @@ initrd /initrd.img
 .
 }
 
-template_grub () {
-    cat <<.
-device (hd0) ${boot_dev}
-root (hd0,0)
-setup (hd0)
-quit
-.
-}
-
 conf_grub () {
     # 'grub-install' and 'update-grub' are prone to fail on a chroot
     # (can't find why). Just run 'grub' until we can boot the system and
@@ -299,6 +290,18 @@ serial --unit=0 --speed=115200 --word=8 --parity=no --stop=1\
 
     # Put Grub on the MBR.
     cp -a ${target}/usr/lib/grub/x86_64-pc/* ${target}/boot/grub/
+}
+
+template_grub () {
+    cat <<.
+device (hd0) ${boot_dev}
+root (hd0,0)
+setup (hd0)
+quit
+.
+}
+
+run_grub () {
     template_grub | grub --device-map=/dev/null 
 }
 
@@ -586,7 +589,7 @@ if [ "$just_umount" = "yes" ] ; then
 fi
 if [ "$just_grub" = "yes" ] ; then
     mount_guest
-    conf_grub
+    run_grub
     umount_guest
     exit
 fi
@@ -603,6 +606,7 @@ do_debootstrap
 conf_basics
 conf_kernel
 conf_grub
+run_grub
 template_inittab >> ${target}/etc/inittab  # Adds a serial console.
 template_fstab > ${target}/etc/fstab
 conf_network
