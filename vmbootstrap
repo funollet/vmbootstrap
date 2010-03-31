@@ -549,12 +549,12 @@ T0:12345:respawn:/sbin/getty -L ttyS0 115200 vt100
 
 ############################################################
 
+parse_opts "$@"
+
 # Verify all the tools are installed on the system.
 check_execs ip ifconfig grep cut awk sed lsb_release apt-cache hostname \
     getopt virsh debootstrap sfdisk kpartx mkfs.ext3 mount umount \
     mountpoint vol_id grub chroot apt-key aptitude debconf-set-selections
-
-parse_opts "$@"
 
 set_defaults
 
