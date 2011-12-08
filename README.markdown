@@ -1,3 +1,22 @@
+lxcinstance
+===========
+
+Deploys an LXC container with `lxc-create -t debian` plus a couple of
+customizations. This is a fast way of creating local containers for 
+development. You probably want to ajust it according to your development
+environment.
+
+vminstance
+==========
+
+Creates a new instance of a virtual machine in the (localhost)
+node, ready to boot via PXE. Another system must take care 
+of boostrapping it (suggestion: FAI).
+
+The script can also mount/umount volumes associated to a virtual
+machine, and delete it (both the guest definition and its volumes).
+
+
 vmbootstrap
 ===========
 
@@ -18,8 +37,8 @@ Any other configuration is left to deployment tools ([Capistrano][capistrano],
 Right now only KVM is supported for virtualization and only Debian guests can
 be installed.
 
-The guest is installed with *debootstrap*. This makes the configuration easier to
-tweak than with a tool based on presseding *debian-installer*.
+The guest is installed with *debootstrap*. This makes the configuration easier
+to tweak than with a tool based on presseding *debian-installer*.
 
 This script is largely inspired by:
 

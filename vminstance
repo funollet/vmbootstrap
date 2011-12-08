@@ -1,0 +1,299 @@
+#!/bin/bash
+# vminstance
+#
+# Creates a new instance of a virtual machine in the (localhost)
+# node, ready to boot via PXE. Another system must take care 
+# of boostrapping it (suggestion: FAI).
+#
+# The script can also mount/umount volumes associated to a virtual
+# machine, and delete it (both the guest definition and its volumes).
+#
+# Originally inspired by:
+#   - http://dsa.debian.org/howto/install-kvm/
+#   - 'newvserver' on 'vserver-utils' Debian package
+#
+# TODO:
+# - mount/umount all partitions in guest's /etc/fstab.
+# - Check if libvirt volume exists.
+# - Create network interface as type 'pcnet'.
+#
+#
+#
+# Copyright 2009-2010 Jordi Funollet <jordi.f@ati.es>
+#
+#    This program is free software: you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation, either version 3 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+
+############################################################
+
+function set_defaults {
+
+    ############################################################
+    # Default values. Can be overwritten in a config file.
+    #
+    #
+    # / partition size (virt-install requires it to be in G).
+    root_size='20'
+    # /boot partition size (virt-install requires it to be in G).
+    boot_size='0.125'
+    # swap partition size (virt-install requires it to be in G).
+    swap_size='1'
+    # Interface source name for libvirt.
+    interface='br0'
+    # Memory for new host (virt-install requires it to be in M).
+    libvirt_mem='1024'
+    # Virtual CPUs for new host (in libvirt format).
+    libvirt_vcpu='1'
+    # New host architecture (in libvirt format).
+    libvirt_arch='x86_64' 
+    #
+    #
+    ############################################################
+
+    # This list is used by function echo_defaults().
+    key_defaults_list="root_size boot_size swap_size interface 
+    	libvirt_mem libvirt_vcpu libvirt_arch" 
+
+}
+
+
+echo_defaults () {
+    # Shows default configuration values in 'key=value' format.
+    # 
+    # Environment:
+    #
+    #   keys_defaults_list: string with names of vars to be shown.
+
+    echo "### Default values: "
+    for key in ${key_defaults_list} ; do
+    	echo ${key}=${!key}
+    done
+}
+
+
+function error () {
+    # Warn and exit.
+    echo "[`basename $0`] error: $*" ; exit 1 ;
+}
+
+function check_execs () {
+    # Verifies we can execute received files.
+ 
+    for X in $@ ; do
+        # Is it in $PATH?
+        hash $X > /dev/null 2>&1 || error "$X not in PATH"
+        FULLPATH=`hash -t $X`
+        # If it's executable, jump to next file.
+        [ -x $FULLPATH ] && continue
+        # Is it a symbolic link...?
+        [ ! -L $FULLPATH ] || error "$X non-executable"
+        # ... and the referenced file is executable? (Ugly hack).
+        stat -Lc '%A' $FULLPATH | grep 'x' || error "$X non-executable"
+    done
+}
+
+############################################################
+
+usage () {
+    echo "Usage: $(basename $0) [options] <guest-name> [VG-name]"
+    echo "    -h,--help     Show this message and exit."
+    echo "    --mount       Just mount guest's partitions."
+    echo "    --umount      Just umount guest's partitions."
+    echo "    --remove      Remove a guest's definition and the storage it was using."
+    echo "    -s,--show-defaults  Show default values."
+    echo "    --vgname      Use this VG for storage; default: $(hostname -s)"
+    echo 
+    echo "Reads non-default values from ~/.$(basename $0)"
+}
+
+
+parse_opts () {
+    tempopt=$(getopt --name $(basename $0) -o u,h,s -l usage,help,mount,umount,remove,show-defaults,vgname: -- "$@")
+    # Finish if received some unknown option.
+    if [ $? != 0 ] ; then usage && exit 1 ; fi
+
+    eval set -- "$tempopt"
+
+    # Default values for command-line options.
+    just_mount='no'
+    just_umount='no'
+    remove='no'
+    show_defaults='no'
+    vgname=$(hostname -s)
+    # Parse named options.
+    while true ; do
+        case "$1" in
+            -u|--usage|-h|--help) usage && exit ;;
+            --mount) just_mount='yes' ; shift ;;
+            --umount) just_umount='yes' ; shift ;;
+            --remove) remove='yes' ; shift ;;
+            -s|--show-defaults) show_defaults='yes' ; shift ;;
+            --vgname) vgname="$2" ; shift 2 ;;
+	    --) shift ; break ;;
+	    *) echo "Internal error!" >&2 ; exit 1 ;;
+    	esac
+    done
+
+    # Parse arguments.
+    if [ $# -eq 1 ] ; then
+        guest=$1
+    else
+        usage && exit 1
+    fi
+}
+
+
+
+############################################################
+
+
+mount_guest () {
+
+    # Expose guest's /boot partition.
+    if [ ! -b "${boot_dev}1" ] ; then
+       kpartx -a ${boot_dev}
+       # This symlink is not required but makes later commands easier.
+       ln -s /dev/mapper/${vgname}-${guest}--boot1 ${boot_dev}1
+    fi
+
+    # Mount guest's filesystems.
+    mkdir -p ${target}
+    if ! mountpoint -q ${target} ; then
+        mount ${root_dev} ${target}
+    fi
+    mkdir -p ${target}/boot/
+    if ! mountpoint -q ${target}/boot/ ; then
+        mount "${boot_dev}1" ${target}/boot/
+    fi
+}
+
+
+umount_guest () {
+    umount ${target}/boot/ &&
+    umount ${target} &&
+    rmdir ${target}
+    rm ${boot_dev}1
+    kpartx -d ${boot_dev}
+}
+
+############################################################
+
+conf_libvirt () {
+
+    virt-install \
+        --connect qemu:///system \
+        --name ${guest} \
+        --ram ${libvirt_mem} \
+        --disk path=${boot_dev},size=${boot_size}, \
+        --disk path=${root_dev},size=${root_size}, \
+        --disk path=${swap_dev},size=${swap_size}, \
+        --mac ${libvirt_mac} \
+        --network bridge:${interface} \
+        --accelerate \
+        --os-type linux --os-variant debianLenny \
+        --keymap es \
+        --vnc \
+        --pxe \
+    && \
+    virsh autostart ${guest}
+}
+
+
+
+__vol_delete () {
+    # Delete a volume in a pool, if exists.
+    # 
+    #   $1: pool
+    #   $2: volume
+    virsh vol-info --pool $1 $2 > /dev/null 2>&1 &&
+        virsh vol-delete --pool $1 $2
+}
+
+remove_guest() {
+    # Undefine a guest and free the storage it was using.
+    virsh destroy $guest
+    virsh undefine $guest
+    __vol_delete $vgname ${guest}-swap
+    __vol_delete $vgname ${guest}-boot
+    __vol_delete $vgname ${guest}-root
+}
+
+
+
+############################################################
+
+parse_opts "$@"
+
+# Verify all the tools are installed on the system.
+check_execs grep cut getopt virsh virt-install kpartx mount umount \
+    mountpoint 
+
+set_defaults
+
+if [ "${show_defaults}" = "yes" ] ; then
+	echo_defaults ; exit
+else
+	# Load config file for overwriting default values.
+	[ -f ~/.$(basename $0) ] && . ~/.$(basename $0)
+fi
+
+# Set explicitly the URI for virsh.
+export VIRSH_DEFAULT_CONNECT_URI='qemu:///system'
+
+# chroot mountpoint for /
+target="/mnt/${guest}"
+# LV for the / disk.
+root_dev="/dev/${vgname}/${guest}-root"
+# LV for the /boot disk.
+boot_dev="/dev/${vgname}/${guest}-boot"
+# LV for swap.
+swap_dev="/dev/${vgname}/${guest}-swap"
+# MAC address for QEMU virtual machines must start with 54:52:00.
+libvirt_mac=$(echo -n 54:52:00 ; for i in 1 2 3 ; do echo -n $(echo ":$RANDOM$RANDOM" | cut -c -3) ;done)
+
+
+
+if [ "$just_mount" = "yes" ] ; then
+    mount_guest ; exit
+fi
+if [ "$just_umount" = "yes" ] ; then
+    umount_guest ; exit
+fi
+if [ "$remove" = "yes" ] ; then
+    remove_guest ; exit
+fi
+
+
+conf_libvirt \
+&& cat <<.
+Ready to boot via PXE.
+
+    Name:   ${guest}
+    MAC:    ${libvirt_mac}    
+
+If you are using FAI, add a line to your '/etc/dnsmasq.conf':
+
+    dhcp-host=${libvirt_mac},${guest},<__ip_address__>
+
+And generate a boot configuration:
+
+    fai-chboot -BI ${guest}
+
+When bootstrap finishes:
+
+    * Change root password.
+    * Sing puppet certificate (if you are using puppet).
+    * Change guest network type to 'virtio' (optional).
+.
+

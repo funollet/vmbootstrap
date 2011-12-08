@@ -1,0 +1,153 @@
+#!/bin/bash 
+# lxcinstance
+#
+# Deploys an LXC container with `lxc-create -t debian` plus a couple of
+# customizations. This is a fast way of creating local containers for 
+# development. You probably want to ajust it according to your development
+# environment.
+#
+# This script should be run as root.
+#
+
+
+######################################################################
+# Customize vars and templates as you wish. ##########################
+
+localuser=jordif                # We will create this user in the container.
+localuid=1000                   # We will create this user in the container.
+path=/var/lib/lxc               # Base directory for all containers.
+
+debian_mirror='ftp.caliu.cat'
+packages='~prequired ~pimportant bash-completion puppet'
+
+template_lxc_conf () {
+    cat <<.
+lxc.network.type=veth
+lxc.network.link=br0
+lxc.network.flags=up
+lxc.network.ipv4=${ip_addr}/24 192.168.1.255
+
+# Mount your work directory inside the container for local development.
+lxc.mount.entry=/home/${localuser}/code ${homedir}/code none bind 0 0
+
+.
+}
+
+
+template_network_interfaces () {
+    cat <<.
+auto lo
+iface lo inet loopback
+
+auto eth0
+iface eth0 inet static
+    address ${ip_addr}
+    netmask 255.255.255.0
+    gateway 192.168.1.1 
+    dns-nameservers 192.168.1.1 
+.
+}
+
+
+
+
+
+######################################################################
+# Probably no configuration needed beyond this point. ################
+
+
+usage () {
+    cat <<.
+Usage: $(basename $0) -n NAME -i IP_ADDRESS
+    -h,--help     Show this message and exit.
+    -n,--name=X   Name of the container.
+    -i,--ip=IP    IP address of the container.
+.
+}
+
+parse_opts () {
+    tempopt=$(getopt --name $(basename $0) -o u,h,i:,n: -l usage,help,ip:,name: -- "$@")
+    # Finish if received some unknown option.
+    if [ $? != 0 ] ; then usage && exit 1 ; fi
+
+    eval set -- "$tempopt"
+
+    # Parse named options.
+    while true ; do
+        case "$1" in
+            -u|--usage|-h|--help) usage && exit ;;
+            -i|--ip) ip_addr=$2 ; shift 2 ;;
+            -n|--name) name=$2 ; shift 2 ;;
+            --) shift ; break ;;
+            *) echo "Internal error!" >&2 ; exit 1 ;;
+        esac
+    done
+
+    # Parse arguments.
+    if [ $# != 0 ] ; then usage && exit 1 ; fi
+
+    if [ -z "${name}" ] ; then usage && exit 1 ; fi 
+    if [ -z "${ip_addr}" ] ; then usage && exit 1 ; fi 
+    # Does the container already exist?
+    lxc-ls -1 | egrep -q "^${name}$"
+    if [ $? == 0 ] ; then usage && exit 1 ; fi 
+
+    if [ "$(id -u)" != "0" ]; then
+        echo "This script should be run as 'root'."
+        exit 1
+    fi
+}
+
+
+
+populate_home () {
+    # Our local user can ssh as root.
+    mkdir -p ${rootfs}/root/.ssh
+    cp /home/${localuser}/.ssh/authorized_keys ${rootfs}/root/.ssh
+    chmod 700 ${rootfs}/root/.ssh
+    chmod 600 ${rootfs}/root/.ssh/authorized_keys 
+
+    # Create mountpoint.
+    mkdir -p ${homedir}/code
+    # Our local user can ssh as itself.
+    mkdir -p ${homedir}/.ssh
+    cp /home/${localuser}/.ssh/authorized_keys ${homedir}/.ssh
+    chmod 700 ${homedir}/.ssh
+    chmod 600 ${homedir}/.ssh/authorized_keys 
+    chown -R ${localuid}:${localuid} ${homedir}/
+}
+
+
+
+parse_opts "$@"
+
+rootfs=${path}/${name}/rootfs
+homedir=${path}/${name}/rootfs/home/${localuser}
+
+
+# Generate an lxc configuration for the new vm.
+template_lxc_conf > /tmp/${name}.conf
+# Create the new container using the 'debian' lxc template.
+lxc-create -n ${name} -f /tmp/${name}.conf -t debian
+
+# lxc-template 'debian' configures network via DHCP. Let's make it static.
+template_network_interfaces > ${rootfs}/etc/network/interfaces
+
+# Create a user/group for local development.
+chroot ${rootfs} groupadd -g ${localuid} ${localuser}
+chroot ${rootfs} useradd -m -s /bin/bash -g  ${localuser} -G sudo \
+    -u ${localuid} ${localuser}
+
+populate_home           # Place some files in users home.
+
+# Use some close Debian mirror.
+sed -i "s/cdn.debian.net/${debian_mirror}/g" ${rootfs}/etc/apt/sources.list
+
+# Install some goodies.
+chroot ${rootfs} apt-get -y update
+chroot ${rootfs} apt-get -y safe-upgrade
+chroot ${rootfs} apt-get -y install aptitude 
+chroot ${rootfs} aptitude -y install ${packages}
+
+lxc-start -n ${name} -d
+
